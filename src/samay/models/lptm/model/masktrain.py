@@ -2,6 +2,12 @@ from typing import Optional
 
 import torch
 
+from samay.models.lptm.segment.scoring import ScoringModuleMult
+from samay.models.lptm.segment.selection import select_segments
+
+select_segments
+ScoringModuleMult
+
 
 class Masking:
     def __init__(
@@ -25,6 +31,7 @@ class Masking:
             mask : torch.Tensor of shape [batch_size x n_patches]
         """
         stride = patch_len if stride is None else stride
+        select_segments(mask, patch_len)
         mask = mask.unfold(dimension=-1, size=patch_len, step=stride)
         # mask : [batch_size x n_patches x patch_len]
         return (mask.sum(dim=-1) == patch_len).long()

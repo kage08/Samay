@@ -26,6 +26,36 @@ SUPPORTED_HUGGINGFACE_MODELS = [
     "google/flan-t5-xxl",
 ]
 
+DEFAULT_BACKBONE = "google/flan-t5-large"
+
+MAX_STRIDE = 8
+
+backbone_config = {
+    "architectures": ["T5ForConditionalGeneration"],
+    "d_ff": 2816,
+    "d_kv": 64,
+    "d_model": 1024,
+    "decoder_start_token_id": 0,
+    "dropout_rate": 0.1,
+    "eos_token_id": 1,
+    "feed_forward_proj": "gated-gelu",
+    "initializer_factor": 1.0,
+    "is_encoder_decoder": True,
+    "layer_norm_epsilon": 1e-06,
+    "model_type": "t5",
+    "n_positions": 512,
+    "num_decoder_layers": 24,
+    "num_heads": 16,
+    "num_layers": 24,
+    "output_past": True,
+    "pad_token_id": 0,
+    "relative_attention_max_distance": 128,
+    "relative_attention_num_buckets": 32,
+    "tie_word_embeddings": False,
+    "use_cache": True,
+    "vocab_size": 32128,
+}
+
 
 @dataclass
 class TimeseriesOutputs:
@@ -120,9 +150,10 @@ class LPTM(nn.Module):
         config = self._update_inputs(config, **kwargs)
         config = self._validate_inputs(config)
         self.config = config
-        self.task_name = config.task_name
-        self.seq_len = config.seq_len
-        self.patch_len = config.patch_len
+        self.config.t5_config = backbone_config
+        self.task_name = "forecasting"
+        self.seq_len = self.config.seq_len = 512
+        self.patch_len = self.config.patch_len = MAX_STRIDE
 
         self.normalizer = RevIN(
             num_features=1, affine=config.getattr("revin_affine", False)
@@ -132,8 +163,8 @@ class LPTM(nn.Module):
         )
         self.patch_embedding = PatchEmbedding(
             d_model=config.d_model,
-            seq_len=config.seq_len,
-            patch_len=config.patch_len,
+            seq_len=self.seq_len,
+            patch_len=self.patch_len,
             stride=config.patch_stride_len,
             patch_dropout=config.getattr("patch_dropout", 0.1),
             add_positional_embedding=config.getattr("add_positional_embedding", True),
@@ -186,7 +217,7 @@ class LPTM(nn.Module):
                 "transformer_type must be one of "
                 "['encoder_only', 'decoder_only', 'encoder_decoder']"
             )
-
+        config.patch_stride_len = config.patch_len = MAX_STRIDE
         if config.patch_stride_len != config.patch_len:
             warnings.warn("Patch stride length is not equal to patch length.")
         return config
@@ -226,6 +257,7 @@ class LPTM(nn.Module):
             raise NotImplementedError(f"Task {task_name} not implemented.")
 
     def _get_transformer_backbone(self, config) -> nn.Module:
+        config.transformer_backbone = DEFAULT_BACKBONE
         model_config = T5Config.from_dict(config.t5_config)
         if config.getattr("randomly_initialize_backbone", False):
             transformer_backbone = T5Model(model_config)
@@ -414,26 +446,6 @@ class LPTM(nn.Module):
         dec_out = self.normalizer(x=dec_out, mode="denorm")
 
         return TimeseriesOutputs(input_mask=input_mask, reconstruction=dec_out)
-
-    def detect_anomalies(
-        self,
-        *,
-        x_enc: torch.Tensor,
-        input_mask: torch.Tensor = None,
-        anomaly_criterion: str = "mse",
-        **kwargs,
-    ) -> TimeseriesOutputs:
-        outputs = self.reconstruct(x_enc=x_enc, input_mask=input_mask)
-        self.anomaly_criterion = get_anomaly_criterion(anomaly_criterion)
-
-        anomaly_scores = self.anomaly_criterion(x_enc, outputs.reconstruction)
-
-        return TimeseriesOutputs(
-            input_mask=input_mask,
-            reconstruction=outputs.reconstruction,
-            anomaly_scores=anomaly_scores,
-            metadata={"anomaly_criterion": anomaly_criterion},
-        )
 
     def forecast(
         self, *, x_enc: torch.Tensor, input_mask: torch.Tensor = None, **kwargs

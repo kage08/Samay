@@ -454,13 +454,13 @@ class LPTMModel(Basemodel):
     def __init__(self, config=None):
         super().__init__(config=config, repo=None)
         self.model = LPTMPipeline.from_pretrained(
-            "AutonLab/MOMENT-1-large", model_kwargs=self.config
+            "google/flan-t5-large", model_kwargs=self.config
         )
         self.model.init()
 
     def finetune(self, dataset, task_name="forecasting", **kwargs):
         # arguments
-        max_lr = 1e-4 if "lr" not in kwargs else kwargs["lr"]
+        max_lr = 1e-5 if "lr" not in kwargs else kwargs["lr"]
         max_epoch = 5 if "epoch" not in kwargs else kwargs["epoch"]
         max_norm = 5.0 if "norm" not in kwargs else kwargs["norm"]
         mask_ratio = 0.25 if "mask_ratio" not in kwargs else kwargs["mask_ratio"]
